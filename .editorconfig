@@ -1,0 +1,17 @@
+# https://editorconfig.org
+
+# Root configuration file
+root = true
+
+# Default settings for all files
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+
+# Specific settings for YAML files
+[*.{yml,yaml}]
+indent_size = 2
