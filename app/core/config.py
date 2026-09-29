@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "auto"
     LLM_TIMEOUT_SECONDS: int = 60
 
+    # --- RAG / Phase 2 (local sentence-transformers, no OpenAI key needed) ---
+    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+    EMBEDDING_DIM: int = 384
+    CHUNK_SIZE: int = 800
+    CHUNK_OVERLAP: int = 150
+    RAG_TOP_K: int = 5
+    RAG_DATA_DIR: str = "data/documents"
+
 
 @lru_cache
 def get_settings() -> Settings:
