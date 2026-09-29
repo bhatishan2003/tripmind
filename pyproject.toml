@@ -19,6 +19,10 @@ dependencies = [
     "tenacity>=8.3",
     "structlog>=24.1",
     "email-validator>=2.0",
+    "pgvector>=0.3",
+    "sentence-transformers>=3.0",
+    "pypdf>=4.0",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
