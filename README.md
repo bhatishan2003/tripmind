@@ -1,8 +1,7 @@
-# AI Travel Planner — Phase 2: RAG-grounded planning
+# AI Travel Planner
 
 End-to-end trip creation with LLM-generated (or template fallback) day-by-day
 itineraries, grounded in a local knowledge base (RAG) with source citations.
-Agents and external tools land in Phase 3.
 
 ## Stack
 FastAPI · PostgreSQL + pgvector (async SQLAlchemy) · Alembic · JWT auth ·
@@ -91,7 +90,7 @@ Without any key the service uses a deterministic template so the full flow works
 offline; it still respects dates, budget, travelers, style, and interests, and
 returns the same `Itinerary` schema the LLM path validates against.
 
-## RAG / knowledge base (Phase 2)
+## RAG / knowledge base
 
 Documents in `data/documents/` are cleaned, chunked, embedded with
 `sentence-transformers` (`all-MiniLM-L6-v2`, no API key), and stored in pgvector.
@@ -102,7 +101,3 @@ best-effort: with an empty corpus the itinerary is generated ungrounded.
 
 The embeddings fall back to a deterministic hash vector when the model cannot be
 downloaded, so ingestion and tests work fully offline.
-
-## What's next (Phase 3)
-`agents/` (planner/researcher/budget/validator graph), `tools/`
-(weather/maps/places/flights/hotels), and conversational trip chat.
