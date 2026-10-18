@@ -1,50 +1,78 @@
-# Streamlit Frontend — AI Travel Planner
+# React Frontend — AI Travel Planner
 
-Separate frontend for the Phase 1 FastAPI backend (`../app`).
+Interactive single-page app for the Phase 1 FastAPI backend (in `../app`).
+Replaces the previous Streamlit UI.
+
+**Stack:** Vite · React 18 · TypeScript · Tailwind CSS · React Router · lucide-react
 
 ## Setup
 
 ```bash
 cd travelling-agent/frontend
-pip install -r requirements.txt
+npm install
 ```
+
+Requires Node.js 18+.
 
 ## Run
 
-Backend must be running first (default `http://localhost:8000`):
+Backend first (default `http://localhost:8000`):
 
 ```bash
 # terminal 1 (backend, from travelling-agent/)
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # terminal 2 (frontend, from travelling-agent/frontend/)
-streamlit run app.py
+npm run dev
 ```
 
-Open http://localhost:8501.
+Open http://localhost:5173.
 
-Point at a different backend:
+The dev server proxies `/api/*` to the backend (see `vite.config.ts`). To point at a
+different backend, copy `.env.example` to `.env` and set:
 
 ```bash
-API_BASE_URL=http://localhost:8000 streamlit run app.py
+VITE_API_BASE_URL=http://localhost:8000
 ```
 
-or change **Backend URL** in the sidebar.
+## Scripts
 
-## Pages (single-file app)
+| Command | Description |
+|---|---|
+| `npm run dev` | Start the dev server with HMR |
+| `npm run build` | Typecheck + production build into `dist/` |
+| `npm run preview` | Serve the production build locally |
+| `npm run typecheck` | Run `tsc --noEmit` |
 
-| View | What it does | Backend call |
+## Views
+
+| Route | What it does | Backend calls |
 |---|---|---|
-| Login / Register | JWT auth, stores token in session | `POST /api/v1/auth/*`, `GET /api/v1/auth/me` |
-| My Trips | List + filter + open trip cards | `GET /api/v1/trips` |
-| ＋ New Trip | Form → create + generate itinerary | `POST /api/v1/trips` |
-| 🧾 Trip Details | Itinerary day-by-day, regenerate, edit (PATCH), delete, raw JSON | `GET/PATCH/DELETE /api/v1/trips/{id}`, `POST /api/v1/trips/{id}/generate` |
+| `/login` | Login + register tabs, JWT stored in `localStorage` | `POST /api/v1/auth/{login,register}`, `GET /api/v1/auth/me` |
+| `/` | Trip list with live filter + sort, skeleton loaders, empty state | `GET /api/v1/trips` |
+| `/trips/new` | Validated form; animated generation progress while waiting | `POST /api/v1/trips` |
+| `/trips/:id` | Day-by-day accordion itinerary, regenerate, edit, delete, export | `GET/PATCH/DELETE /api/v1/trips/{id}`, `POST /api/v1/trips/{id}/generate` |
 
-## Files
+## Interactive features
 
-- `app.py` — full Streamlit UI
-- `api_client.py` — `TravelApiClient` (requests wrapper, raises `ApiError`)
-- `requirements.txt` — `streamlit`, `requests`
-- `.streamlit/config.toml` — port + theme
+- **Dark mode** toggle (persisted to `localStorage`, honours OS preference).
+- **Export / Print** — expands every day and opens the browser print dialog, backed by
+  a dedicated `@media print` stylesheet for a clean PDF.
+- Animated itinerary **generation progress** with rotating status messages.
+- **Collapsible day plans**, a timeline of activities with category badges and costs.
+- **Toasts** for success/error feedback, modal-based edit and delete confirmation.
+- **Backend health** indicator, trip search/sort, loading skeletons, fully responsive.
+
+## Structure
+
+```
+src/
+  api/client.ts          Typed fetch client (ApiError, timeouts, JWT header)
+  context/               Auth, Theme, and Toast providers
+  components/            AppShell, ItineraryView, TripCard, Modal, Toasts, ...
+  pages/                 LoginPage, TripsPage, NewTripPage, TripDetailsPage
+  lib/                   constants (styles/currencies/interests) and formatters
+  types.ts               Shared API types
+```
 
 Demo login (after `python ../scripts/seed_database.py`): `demo@example.com` / `demo1234`

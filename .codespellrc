@@ -1,4 +1,6 @@
 [codespell]
 skip = *.ipynb
+# MapPin is the lucide-react icon name (not a typo for "mapping")
+ignore-words-list = MapPin
 count =
 quiet-level = 3
