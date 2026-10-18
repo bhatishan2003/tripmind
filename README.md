@@ -6,13 +6,27 @@ No agents, no RAG yet — those land in Phase 2.
 ## Stack
 FastAPI · PostgreSQL (async SQLAlchemy) · Alembic · JWT auth · OpenAI (structured JSON) with offline fallback
 
-## Quickstart
+## Quickstart (one command)
+
+Starts Postgres, the FastAPI backend, and the React frontend together:
+
+```bash
+./run.sh
+```
+
+Open http://localhost:5173 (API docs at http://localhost:8000/docs).
+Demo login: `demo@example.com` / `demo1234`. See `./run.sh --help` for flags
+(`--no-db`, `--no-frontend`, `--reset-db`, …).
+
+### Manual quickstart
 
 ```bash
 cp .env.example .env
 docker compose up -d db            # start Postgres
 pip install -e ".[dev]"
 uvicorn app.main:app --reload      # creates tables automatically in local env
+# in another terminal:
+cd frontend && npm install && npm run dev
 ```
 
 Seed demo data (no LLM key needed):
