@@ -10,6 +10,7 @@
 #   ./run.sh --no-frontend   # backend only
 #   ./run.sh --no-backend    # frontend only (expects backend already up)
 #   ./run.sh --no-seed       # skip demo-data seeding
+#   ./run.sh --no-ingest     # skip RAG knowledge-base ingestion
 #   ./run.sh --reset-db      # WIPE the database volume, then start fresh
 #   ./run.sh -h | --help     # this help
 #
@@ -33,6 +34,7 @@ START_DB=1
 START_BACKEND=1
 START_FRONTEND=1
 SEED=1
+INGEST=1
 RESET_DB=0
 
 # ------------------------------------------------------------------- colors
@@ -49,7 +51,7 @@ warn() { printf '%s   !%s %s\n' "$YELLOW$BOLD" "$RESET" "$*"; }
 die()  { printf '%s   x%s %s\n' "$RED$BOLD" "$RESET" "$*" >&2; exit 1; }
 
 usage() {
-  sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 }
 
@@ -60,6 +62,7 @@ while [ $# -gt 0 ]; do
     --no-backend)  START_BACKEND=0 ;;
     --no-frontend) START_FRONTEND=0 ;;
     --no-seed)     SEED=0 ;;
+    --no-ingest)   INGEST=0 ;;
     --reset-db)    RESET_DB=1 ;;
     -h|--help)     usage ;;
     *) die "Unknown option: $1 (try --help)" ;;
@@ -167,11 +170,16 @@ if [ "$START_BACKEND" -eq 1 ]; then
   log "Ensuring database schema exists"
   "$PY" - <<'PY' || die "Could not initialise the schema — is Postgres running? (do not pass --no-db on a fresh start)"
 import asyncio
+from sqlalchemy import text
 from app.db.database import Base, engine
 import app.db.models  # noqa: F401  (register tables)
 
 async def main() -> None:
     async with engine.begin() as conn:
+        # pgvector extension must exist before create_all emits the
+        # `embedding vector(dim)` column on a fresh database.
+        if conn.dialect.name == "postgresql":
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
     await engine.dispose()
 
@@ -198,6 +206,11 @@ PY
       log "Seeding demo data (demo@example.com / demo1234)"
       "$PY" scripts/seed_database.py
     fi
+  fi
+
+  if [ "$INGEST" -eq 1 ] && [ -d "$ROOT/data/documents" ]; then
+    log "Ingesting knowledge base (data/documents -> pgvector)"
+    "$PY" scripts/ingest_knowledge.py || warn "Knowledge ingestion failed — continuing without RAG context"
   fi
 fi
 
