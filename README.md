@@ -1,10 +1,13 @@
-# AI Travel Planner — Phase 1: Basic Travel Planner
+# AI Travel Planner — Phase 2: RAG-grounded planning
 
-End-to-end trip creation with LLM-generated (or template fallback) day-by-day itineraries.
-No agents, no RAG yet — those land in Phase 2.
+End-to-end trip creation with LLM-generated (or template fallback) day-by-day
+itineraries, grounded in a local knowledge base (RAG) with source citations.
+Agents and external tools land in Phase 3.
 
 ## Stack
-FastAPI · PostgreSQL (async SQLAlchemy) · Alembic · JWT auth · OpenAI (structured JSON) with offline fallback
+FastAPI · PostgreSQL + pgvector (async SQLAlchemy) · Alembic · JWT auth ·
+sentence-transformers embeddings · Groq/OpenAI (structured JSON) with offline fallback ·
+React + Vite + Tailwind frontend
 
 ## Quickstart (one command)
 
@@ -34,6 +37,11 @@ Seed demo data (no LLM key needed):
 python scripts/seed_database.py
 ```
 
+Ingest the knowledge base (chunks + embeddings into pgvector):
+```bash
+python scripts/ingest_knowledge.py
+```
+
 Run tests (SQLite, no external services):
 ```bash
 pytest -q
@@ -52,6 +60,8 @@ pytest -q
 | PATCH | `/trips/{id}` | Update constraints |
 | DELETE | `/trips/{id}` | Delete trip |
 | POST | `/trips/{id}/generate` | Regenerate itinerary |
+| GET | `/destinations/search` | Search RAG destinations (`?q=`) |
+| GET | `/destinations/{name}` | Destination knowledge-base detail |
 
 ### Example
 
@@ -81,6 +91,18 @@ Without any key the service uses a deterministic template so the full flow works
 offline; it still respects dates, budget, travelers, style, and interests, and
 returns the same `Itinerary` schema the LLM path validates against.
 
-## What's next (Phase 2)
-`agents/` (planner/researcher/budget/validator graph), `rag/` (embeddings + vector store),
-`tools/` (weather/maps/places/flights/hotels), chat + destination endpoints.
+## RAG / knowledge base (Phase 2)
+
+Documents in `data/documents/` are cleaned, chunked, embedded with
+`sentence-transformers` (`all-MiniLM-L6-v2`, no API key), and stored in pgvector.
+Every itinerary is generated with the top-k retrieved chunks injected as context,
+and the response includes an `itinerary.sources` array (title, snippet, score) that
+the UI shows as citations. Retrieval runs through `app/rag/retriever.py` and is
+best-effort: with an empty corpus the itinerary is generated ungrounded.
+
+The embeddings fall back to a deterministic hash vector when the model cannot be
+downloaded, so ingestion and tests work fully offline.
+
+## What's next (Phase 3)
+`agents/` (planner/researcher/budget/validator graph), `tools/`
+(weather/maps/places/flights/hotels), and conversational trip chat.
