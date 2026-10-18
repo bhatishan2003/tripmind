@@ -16,7 +16,7 @@ from decimal import Decimal
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
-from app.schemas.itinerary import Activity, DayPlan, Itinerary
+from app.schemas.itinerary import Activity, DayPlan, Itinerary, ItinerarySource
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,22 @@ matching this schema:
    "meals": [str], "notes": str}]}
 Rules: 3-5 activities per day, respect budget (total_estimated_cost <= budget),
 spread interests across days, include meal suggestions, keep locations in/near destination.
+When "Relevant local knowledge" is provided, ground recommendations in it and prefer
+those neighborhoods, dishes, and tips over generic suggestions.
 """
+
+
+def _first_sentence(text: str, max_len: int = 200) -> str:
+    """First sentence of a chunk, trimmed — used to ground fallback descriptions."""
+    text = " ".join((text or "").split())
+    if not text:
+        return ""
+    for sep in (". ", "! ", "? "):
+        idx = text.find(sep)
+        if idx != -1:
+            text = text[: idx + 1]
+            break
+    return text if len(text) <= max_len else text[: max_len - 1].rstrip() + "…"
 
 
 def _fallback_itinerary(
@@ -42,8 +57,15 @@ def _fallback_itinerary(
     travelers: int,
     travel_style: str,
     interests: list[str],
+    sources: list[ItinerarySource] | None = None,
 ) -> Itinerary:
-    """Deterministic template so Phase 1 works with no API key."""
+    """Deterministic template so the flow works with no API key.
+
+    When knowledge-base `sources` are provided, the morning highlight of each day
+    is grounded in a retrieved snippet so even the fallback reflects the RAG corpus.
+    """
+    sources = sources or []
+    knowledge = [s for s in sources if s.snippet]
     n_days = (end - start).days + 1
     focus = interests or ["sightseeing", "food", "culture"]
     per_day = float(budget) / max(n_days, 1)
@@ -52,6 +74,14 @@ def _fallback_itinerary(
         day_date = start + timedelta(days=i)
         theme = focus[i % len(focus)]
         morning, afternoon = focus[i % len(focus)], focus[(i + 1) % len(focus)]
+        morning_description = f"Morning {morning} highlight, {travel_style} pace for {travelers} traveler(s)."
+        day_notes = "Template itinerary (no LLM key configured)."
+        if knowledge:
+            src = knowledge[i % len(knowledge)]
+            grounded = _first_sentence(src.snippet)
+            if grounded:
+                morning_description = grounded
+            day_notes = f"Grounded in “{src.title}” (knowledge base)."
         days.append(
             DayPlan(
                 day_number=i + 1,
@@ -61,7 +91,7 @@ def _fallback_itinerary(
                     Activity(
                         time="09:00",
                         title=f"Explore {destination} — {morning}",
-                        description=f"Morning {morning} highlight, {travel_style} pace for {travelers} traveler(s).",
+                        description=morning_description,
                         location=destination,
                         category=morning,
                         cost_estimate=round(per_day * 0.3, 2),
@@ -92,15 +122,17 @@ def _fallback_itinerary(
                     ),
                 ],
                 meals=["Breakfast at hotel", "Local lunch", "Dinner"],
-                notes="Template itinerary (no LLM key configured). Set GROQ_API_KEY or OPENAI_API_KEY for AI-generated plans.",
+                notes=day_notes,
             )
         )
+    grounded_note = f" Grounded in {len(knowledge)} local source(s)." if knowledge else ""
     return Itinerary(
         summary=f"{n_days}-day {travel_style} trip to {destination} for {travelers} traveler(s), "
-        f"focused on {', '.join(focus)}.",
+        f"focused on {', '.join(focus)}.{grounded_note}",
         total_estimated_cost=float(budget) * 0.9,
         currency=currency,
         days=days,
+        sources=sources,
     )
 
 
@@ -151,6 +183,14 @@ def _call_llm(user_prompt: str) -> str:
     return resp.choices[0].message.content or "{}"
 
 
+def _knowledge_block(sources: list[ItinerarySource]) -> str:
+    usable = [s for s in sources if s.snippet]
+    if not usable:
+        return ""
+    lines = "\n".join(f"- [{s.title}] {s.snippet}" for s in usable)
+    return f"\nRelevant local knowledge (ground your plan in these; do not invent facts beyond them):\n{lines}\n"
+
+
 def generate_itinerary(
     *,
     destination: str,
@@ -161,8 +201,10 @@ def generate_itinerary(
     travelers: int = 1,
     travel_style: str = "balanced",
     interests: list[str] | None = None,
+    sources: list[ItinerarySource] | None = None,
 ) -> Itinerary:
     interests = interests or []
+    sources = sources or []
     if _resolve_llm() is None:
         logger.info("No LLM key set (GROQ_API_KEY/OPENAI_API_KEY) — using fallback generator")
         return _fallback_itinerary(
@@ -174,6 +216,7 @@ def generate_itinerary(
             travelers=travelers,
             travel_style=travel_style,
             interests=interests,
+            sources=sources,
         )
     n_days = (end_date - start_date).days + 1
     user_prompt = (
@@ -181,6 +224,7 @@ def generate_itinerary(
         f"Budget: {budget} {currency}\nTravelers: {travelers}\n"
         f"Travel style: {travel_style}\nInterests: {', '.join(interests) or 'general'}\n"
         f"Total estimated cost must be <= {budget} {currency}."
+        f"{_knowledge_block(sources)}"
     )
     try:
         raw = _call_llm(user_prompt)
@@ -189,6 +233,7 @@ def generate_itinerary(
         itinerary = Itinerary.model_validate(data)
         if itinerary.total_estimated_cost > float(budget):
             itinerary.total_estimated_cost = float(budget) * 0.95
+        itinerary.sources = sources
         return itinerary
     except Exception as exc:  # noqa: BLE001 - any LLM/parse/validation failure falls back to template
         logger.warning("LLM call failed (%s) — falling back to template", exc)
@@ -201,4 +246,5 @@ def generate_itinerary(
             travelers=travelers,
             travel_style=travel_style,
             interests=interests,
+            sources=sources,
         )

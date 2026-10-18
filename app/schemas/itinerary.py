@@ -21,8 +21,20 @@ class DayPlan(BaseModel):
     notes: str = ""
 
 
+class ItinerarySource(BaseModel):
+    """A retrieved knowledge-base chunk the itinerary was grounded in."""
+
+    title: str
+    source_uri: str
+    destination: str | None = None
+    category: str | None = None
+    snippet: str = ""
+    score: float = 0.0
+
+
 class Itinerary(BaseModel):
     summary: str
     total_estimated_cost: float
     currency: str = "USD"
     days: list[DayPlan]
+    sources: list[ItinerarySource] = Field(default_factory=list)

@@ -8,12 +8,41 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import bad_request, not_found
 from app.db.models.trip import Trip
 from app.db.repositories import trip as trip_repo
+from app.rag.retriever import retrieve_sources
 from app.schemas.trip import TripCreate, TripUpdate
 from app.services.itinerary_service import generate_itinerary
 
 
+async def _generate_itinerary(
+    session: AsyncSession,
+    *,
+    destination: str,
+    start_date,
+    end_date,
+    budget,
+    currency: str,
+    travelers: int,
+    travel_style: str,
+    interests: list[str],
+):
+    """Retrieve knowledge-base context, then generate a grounded itinerary."""
+    sources = await retrieve_sources(session, destination=destination, interests=interests)
+    return generate_itinerary(
+        destination=destination,
+        start_date=start_date,
+        end_date=end_date,
+        budget=budget,
+        currency=currency,
+        travelers=travelers,
+        travel_style=travel_style,
+        interests=interests,
+        sources=sources,
+    )
+
+
 async def create_trip(session: AsyncSession, user_id: uuid.UUID, payload: TripCreate) -> Trip:
-    itinerary = generate_itinerary(
+    itinerary = await _generate_itinerary(
+        session,
         destination=payload.destination,
         start_date=payload.start_date,
         end_date=payload.end_date,
@@ -21,7 +50,7 @@ async def create_trip(session: AsyncSession, user_id: uuid.UUID, payload: TripCr
         currency=payload.currency,
         travelers=payload.travelers,
         travel_style=payload.travel_style,
-        interests=payload.interests,
+        interests=list(payload.interests),
     )
     trip = await trip_repo.create(
         session,
@@ -65,7 +94,8 @@ async def update_trip(session: AsyncSession, user_id: uuid.UUID, trip_id: uuid.U
 
 async def regenerate_itinerary(session: AsyncSession, user_id: uuid.UUID, trip_id: uuid.UUID) -> Trip:
     trip = await get_trip(session, user_id, trip_id)
-    itinerary = generate_itinerary(
+    itinerary = await _generate_itinerary(
+        session,
         destination=trip.destination,
         start_date=trip.start_date,
         end_date=trip.end_date,
