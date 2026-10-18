@@ -1,10 +1,12 @@
 import {
   Banknote,
+  BookOpen,
   CalendarDays,
   ChevronDown,
   Clock,
   Compass,
   MapPin,
+  Sparkles,
   StickyNote,
   Tag,
   UtensilsCrossed,
@@ -207,13 +209,27 @@ export function ItineraryView({
     { icon: CalendarDays, label: "Days", value: String(itinerary.days.length) },
   ];
 
+  const sources = itinerary.sources ?? [];
+
   return (
     <div className="space-y-5">
       <div className="card space-y-3 p-5">
-        <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          <Compass className="h-4 w-4 text-brand-500" />
-          Itinerary Summary
-        </h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <Compass className="h-4 w-4 text-brand-500" />
+            Itinerary Summary
+          </h2>
+          {sources.length ? (
+            <a
+              href="#sources"
+              className="chip bg-emerald-100 text-emerald-700 no-underline dark:bg-emerald-950 dark:text-emerald-300"
+              title="This plan is grounded in the knowledge base"
+            >
+              <Sparkles className="mr-1 h-3 w-3" />
+              Grounded in {sources.length} source{sources.length === 1 ? "" : "s"}
+            </a>
+          ) : null}
+        </div>
         <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
           {itinerary.summary || "—"}
         </p>
@@ -243,6 +259,43 @@ export function ItineraryView({
           />
         ))}
       </div>
+
+      {sources.length ? (
+        <div id="sources" className="card space-y-3 p-5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <BookOpen className="h-4 w-4 text-brand-500" />
+            Sources &amp; references
+          </h2>
+          <ul className="space-y-3">
+            {sources.map((source) => (
+              <li
+                key={source.source_uri}
+                className="print-block rounded-xl border border-slate-100 bg-slate-50/60 p-3.5 dark:border-slate-800 dark:bg-slate-800/40"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                    {source.title}
+                  </span>
+                  {source.category ? (
+                    <span className={`chip ${categoryClass(source.category)}`}>
+                      {titleCase(source.category)}
+                    </span>
+                  ) : null}
+                  {source.destination ? (
+                    <span className="text-xs text-slate-400">{source.destination}</span>
+                  ) : null}
+                </div>
+                {source.snippet ? (
+                  <p className="mt-1.5 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                    {source.snippet}
+                  </p>
+                ) : null}
+                <p className="mt-1 text-[11px] text-slate-400">{source.source_uri}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }

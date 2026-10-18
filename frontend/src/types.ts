@@ -23,11 +23,39 @@ export interface DayPlan {
   notes: string;
 }
 
+export interface ItinerarySource {
+  title: string;
+  source_uri: string;
+  destination?: string | null;
+  category?: string | null;
+  snippet: string;
+  score: number;
+}
+
 export interface Itinerary {
   summary: string;
   total_estimated_cost: number;
   currency: string;
   days: DayPlan[];
+  sources: ItinerarySource[];
+}
+
+export interface DestinationSummary {
+  destination: string;
+  document_count: number;
+  categories: string[];
+}
+
+export interface DestinationDocument {
+  id: string;
+  title: string;
+  source_uri: string;
+  category?: string | null;
+  snippet: string;
+}
+
+export interface DestinationDetail extends DestinationSummary {
+  documents: DestinationDocument[];
 }
 
 export interface Trip {

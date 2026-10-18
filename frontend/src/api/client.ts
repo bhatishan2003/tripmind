@@ -1,5 +1,7 @@
 import { API_BASE_URL } from "@/lib/constants";
 import type {
+  DestinationDetail,
+  DestinationSummary,
   Trip,
   TripCreatePayload,
   TripUpdatePayload,
@@ -149,6 +151,18 @@ export const api = {
 
   regenerate: (token: string, id: string) =>
     request<Trip>(`/trips/${id}/generate`, { method: "POST", token, timeoutMs: 120_000 }),
+
+  searchDestinations: (token: string, q: string, limit = 8) =>
+    request<DestinationSummary[]>(
+      `/destinations/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+      { token, timeoutMs: 10_000 },
+    ),
+
+  getDestination: (token: string, name: string) =>
+    request<DestinationDetail>(`/destinations/${encodeURIComponent(name)}`, {
+      token,
+      timeoutMs: 10_000,
+    }),
 };
 
 export { API_BASE_URL };

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { ApiError, api } from "@/api/client";
+import { DestinationInput } from "@/components/DestinationInput";
 import { GenerationProgress } from "@/components/GenerationProgress";
 import { Spinner } from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
@@ -129,15 +130,7 @@ export function NewTripPage() {
               <label className="label" htmlFor="destination">
                 Destination <span className="text-rose-500">*</span>
               </label>
-              <input
-                id="destination"
-                className="input"
-                value={destination}
-                onChange={(e) => setDestination(e.target.value)}
-                placeholder="e.g. Kyoto, Japan"
-                autoFocus
-                required
-              />
+              <DestinationInput value={destination} onChange={setDestination} />
             </div>
             <div>
               <label className="label" htmlFor="startDate">
