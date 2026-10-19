@@ -1,5 +1,10 @@
 # AI Travel Planner
 
+[![CI](https://img.shields.io/github/actions/workflow/status/bhatishan2003/tripmind/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white)](https://github.com/bhatishan2003/tripmind/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/github/actions/workflow/status/bhatishan2003/tripmind/ci.yml?branch=main&label=tests%20passing&logo=pytest&logoColor=white)](https://github.com/bhatishan2003/tripmind/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/bhatishan2003/tripmind/branch/main/graph/badge.svg)](https://codecov.io/gh/bhatishan2003/tripmind)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue?logo=python&logoColor=white)](https://github.com/bhatishan2003/tripmind/blob/main/pyproject.toml)
+
 End-to-end trip creation with LLM-generated (or template fallback) day-by-day
 itineraries, grounded in a local knowledge base (RAG) with source citations.
 
