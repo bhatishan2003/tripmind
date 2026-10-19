@@ -8,6 +8,22 @@
 
 ## 1. System Context
 
+tripmind` is a single-user-facing web app: a traveller
+signs in, describes a trip, and receives a day-by-day itinerary grounded in a
+local travel knowledge base. The **React SPA** is the only surface a user
+touches — it handles routing (`Login · Trips · NewTrip · Details`), auth/theme/
+toast state via contexts, and every backend call through `api/client.ts` (JWT
+`Bearer` header, request timeouts, typed errors). Those calls hit the **FastAPI
+edge** (`/health` + `/api/v1` router) which fans out to three layers: the **API
+layer** validates requests and enforces ownership, the **service layer**
+orchestrates trip CRUD and itinerary generation, and the **RAG pipeline**
+supplies grounded context. All persistent state lives in **PostgreSQL + pgvector**
+through SQLAlchemy models, while the **LLM** (Groq/OpenAI) and **local
+embeddings** are pluggable externals. **Delivery** is fully containerised, so the
+same image that passes CI runs in production. The key design promise: every
+layer degrades gracefully, so the product works end-to-end even with no LLM key
+and an empty corpus.
+
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0b1220","primaryColor":"#111c33","primaryTextColor":"#e2e8f0","primaryBorderColor":"#334155","lineColor":"#64748b","fontFamily":"ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif","fontSize":"15px"}}}%%
 flowchart LR
@@ -111,6 +127,21 @@ flowchart LR
 
 ## 2. Itinerary Generation — Request Flow
 
+This is the core user journey: from the SPA's "Plan a
+new trip" form, the traveller submits a destination, date range, budget/currency,
+traveller count, travel style, and interests. The `trips` router authenticates
+the JWT and hands the payload to `trip_service`, which **first** asks the RAG
+retriever for relevant knowledge-base chunks (semantic search over pgvector,
+filtered by destination and the traveller's interests) and shapes them into
+citable `ItinerarySource`s. Those citations are then injected into the generation
+step: if an LLM key is configured, the model is called in JSON mode with the
+knowledge block as grounding; otherwise — or if the call/parse fails — a
+deterministic template produces the plan. In both cases the result is validated
+against the same `Itinerary` schema, budget-capped, persisted with the trip, and
+returned as `201` so the SPA can render the day-by-day plan **with source
+citations**. The UI shows a progress panel because LLM generation can take up to
+~60 seconds.
+
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0b1220","primaryColor":"#111c33","primaryTextColor":"#e2e8f0","primaryBorderColor":"#334155","lineColor":"#64748b","fontFamily":"ui-sans-serif, system-ui, sans-serif","fontSize":"14px"}}}%%
 sequenceDiagram
@@ -152,6 +183,19 @@ sequenceDiagram
 
 ## 3. Knowledge Base Ingestion (offline)
 
+The quality of grounded itineraries depends on this
+offline pipeline, which is what makes recommendations feel destination-specific
+(neighborhoods, dishes, local tips) rather than generic. A maintainer drops
+Markdown, text, or PDF files into `data/documents/` — destination and category
+are inferred from the folder path, an `__` filename convention, or front-matter,
+so no manual tagging is needed. Each file is cleaned (HTML stripping, unicode and
+whitespace normalization, boilerplate removal), split into ~800-character chunks
+with a 150-character sliding overlap so context survives chunk boundaries, then
+embedded locally and upserted. Ingestion is **idempotent**: a SHA256 checksum
+means unchanged files are skipped on re-run. The corpus is then browsable through
+the `/destinations` endpoints, and its `source_uri/title` metadata is what flows
+back to the UI as citations.
+
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0b1220","primaryColor":"#111c33","primaryTextColor":"#e2e8f0","primaryBorderColor":"#334155","lineColor":"#64748b","fontSize":"14px"}}}%%
 flowchart LR
@@ -176,6 +220,21 @@ tests work fully offline.
 ---
 
 ## 4. Data Model
+
+The schema reflects the product's two concerns:
+per-user planning and the shared knowledge base. A **USER owns many TRIPs**, so
+the API can scope every read/write to the authenticated owner (trips list,
+detail, update, delete, regenerate all check `user_id`). A **TRIP** stores the
+traveller's constraints plus the generated `itinerary` as JSON — keeping it in
+one column keeps regeneration atomic and means the product never needs a schema
+change to evolve the itinerary format; `updated_at` drives the "regenerated"
+view. The knowledge side is **DOCUMENT has many DOCUMENT_CHUNKs**: `source_uri`
+uniquely identifies an ingested file, `checksum` enables idempotent re-ingestion,
+and each chunk carries its `embedding` vector plus denormalised metadata
+(destination, category, title) so retrieval can both score and filter in one
+query. `EmbeddingColumn` is a pgvector `vector(384)` on Postgres but degrades to
+JSON on SQLite, which is what lets the same models back production and the test
+suite.
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0b1220","primaryColor":"#111c33","primaryTextColor":"#e2e8f0","primaryBorderColor":"#334155","lineColor":"#64748b","fontSize":"14px"}}}%%
@@ -226,6 +285,17 @@ erDiagram
 ---
 
 ## 5. CI/CD Pipeline
+
+Every push or PR runs the same gates that protect the
+product's two guarantees — a working API and a working UI. **Lint** (`ruff check`
++ `ruff format --check`) keeps the codebase consistent; **Tests** run the suite
+on Python 3.11/3.12/3.13 with `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` set, which
+exercises the offline embedding fallback and the SQLite path exactly as the code
+promises, then publishes coverage to Codecov; the **Frontend** job runs `tsc` +
+`vite build` so type errors or broken imports block a merge. Once all three pass
+on `main`, the **Docker** job builds the single production image and pushes it to
+**GHCR** with branch/sha/`latest` tags — so the artefact that ships is the one
+CI just verified. PRs and non-`main` branches validate but do not publish.
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0b1220","primaryColor":"#111c33","primaryTextColor":"#e2e8f0","primaryBorderColor":"#334155","lineColor":"#64748b","fontSize":"14px"}}}%%
