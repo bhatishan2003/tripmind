@@ -163,7 +163,11 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="print-area mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:py-10">
+        <main
+          className={`print-area mx-auto w-full flex-1 px-4 py-6 sm:px-6 lg:py-10 ${
+            location.pathname === "/chat" ? "max-w-[100rem]" : "max-w-6xl"
+          }`}
+        >
           <Outlet />
         </main>
       </div>
