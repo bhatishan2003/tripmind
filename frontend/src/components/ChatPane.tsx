@@ -1,5 +1,19 @@
-import { BookOpen, Bot, MessageCircle, Plus, Send, Sparkles, Square, User } from "lucide-react";
+import {
+  BookOpen,
+  Bot,
+  Check,
+  ChevronDown,
+  Copy,
+  MessageCircle,
+  Plus,
+  Send,
+  Sparkles,
+  Square,
+  User,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { ApiError, api, streamChat } from "@/api/client";
 import { Spinner } from "@/components/Spinner";
@@ -15,6 +29,81 @@ const SUGGESTIONS = [
   "Suggest a budget-friendly food day in Barcelona",
   "Make day 3 of my trip cheaper",
 ];
+
+const markdownComponents: Components = {
+  h1: ({ children }) => (
+    <h2 className="mb-2 mt-5 text-lg font-semibold leading-snug first:mt-0">{children}</h2>
+  ),
+  h2: ({ children }) => (
+    <h3 className="mb-2 mt-5 text-base font-semibold leading-snug first:mt-0">{children}</h3>
+  ),
+  h3: ({ children }) => (
+    <h4 className="mb-1.5 mt-4 text-sm font-semibold leading-snug first:mt-0">{children}</h4>
+  ),
+  h4: ({ children }) => (
+    <h5 className="mb-1.5 mt-3 text-sm font-semibold leading-snug first:mt-0">{children}</h5>
+  ),
+  p: ({ children }) => <p className="mb-2.5 leading-relaxed last:mb-0">{children}</p>,
+  strong: ({ children }) => (
+    <strong className="font-semibold text-slate-900 dark:text-slate-100">{children}</strong>
+  ),
+  em: ({ children }) => <em className="italic">{children}</em>,
+  del: ({ children }) => <del className="line-through opacity-70">{children}</del>,
+  ul: ({ children }) => <ul className="mb-2.5 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>,
+  ol: ({ children }) => (
+    <ol className="mb-2.5 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>
+  ),
+  li: ({ children }) => <li className="leading-relaxed [&>p]:mb-1">{children}</li>,
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-medium text-brand-600 underline decoration-brand-300 underline-offset-2 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
+    >
+      {children}
+    </a>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="my-2.5 border-l-2 border-brand-300 bg-brand-50/60 px-3 py-2 text-slate-600 dark:border-brand-700 dark:bg-brand-950/30 dark:text-slate-300">
+      {children}
+    </blockquote>
+  ),
+  hr: () => <hr className="my-4 border-slate-200 dark:border-slate-800" />,
+  code: ({ className, children }) =>
+    className ? (
+      <code className={`font-mono text-xs ${className}`}>{children}</code>
+    ) : (
+      <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.85em] text-slate-800 dark:bg-slate-800 dark:text-slate-200">
+        {children}
+      </code>
+    ),
+  pre: ({ children }) => (
+    <pre className="my-3 overflow-x-auto rounded-xl bg-slate-900 p-3 text-xs leading-relaxed text-slate-100 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-inherit">
+      {children}
+    </pre>
+  ),
+  table: ({ children }) => (
+    <div className="my-3 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+      <table className="min-w-full border-collapse text-left text-xs sm:text-sm">{children}</table>
+    </div>
+  ),
+  thead: ({ children }) => (
+    <thead className="bg-slate-50 text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+      {children}
+    </thead>
+  ),
+  tbody: ({ children }) => (
+    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">{children}</tbody>
+  ),
+  tr: ({ children }) => <tr className="align-top">{children}</tr>,
+  th: ({ children }) => (
+    <th className="whitespace-nowrap px-3 py-2 font-semibold">{children}</th>
+  ),
+  td: ({ children }) => (
+    <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{children}</td>
+  ),
+};
 
 let tempId = 0;
 const nextTempId = () => `temp-${Date.now()}-${++tempId}`;
@@ -67,6 +156,13 @@ export function ChatPane() {
       block: "end",
     });
   }, [messages, streaming]);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [input]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -173,6 +269,7 @@ export function ChatPane() {
   );
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void send(input);
@@ -183,7 +280,7 @@ export function ChatPane() {
 
   return (
     <section className="card flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex items-center gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+      <header className="flex items-center gap-3 border-b border-slate-200 bg-white/70 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/70">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-600 text-white shadow-sm">
           <Sparkles className="h-4 w-4" />
         </span>
@@ -192,7 +289,11 @@ export function ChatPane() {
             {title || "Travel assistant"}
           </p>
           <p className="truncate text-xs text-slate-500 dark:text-slate-400">
-            {conversationId ? "Conversation saved" : "New conversation"}
+            {streaming
+              ? "Streaming response…"
+              : conversationId
+                ? "Conversation saved"
+                : "New conversation"}
           </p>
         </div>
         <button
@@ -206,7 +307,7 @@ export function ChatPane() {
         </button>
       </header>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5 sm:px-6">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5 sm:px-6">
         {loadingHistory ? (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-slate-500 dark:text-slate-400">
             <Spinner className="h-5 w-5 text-brand-500" />
@@ -224,7 +325,7 @@ export function ChatPane() {
             <MessageBubble
               key={message.id}
               message={message}
-              live={streaming && message.role === "assistant" && !message.content}
+              streaming={streaming && message.role === "assistant"}
             />
           ))
         )}
@@ -322,9 +423,32 @@ function EmptyState({ onPick }: { onPick: (suggestion: string) => void }) {
   );
 }
 
-function MessageBubble({ message, live }: { message: ChatMessage; live: boolean }) {
+function MessageBubble({
+  message,
+  streaming,
+}: {
+  message: ChatMessage;
+  streaming: boolean;
+}) {
   const isUser = message.role === "user";
   const Icon = isUser ? User : Bot;
+  const toast = useToast();
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Could not copy this reply.");
+    }
+  };
+
+  const time = new Date(message.created_at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
@@ -338,46 +462,85 @@ function MessageBubble({ message, live }: { message: ChatMessage; live: boolean 
         <Icon className="h-4 w-4" />
       </span>
 
-      <div className={`min-w-0 max-w-[min(100%,42rem)] ${isUser ? "text-right" : ""}`}>
+      <div
+        className={`min-w-0 ${
+          isUser ? "max-w-[min(100%,34rem)] text-right" : "w-full max-w-[min(100%,52rem)]"
+        }`}
+      >
         <div
-          className={`inline-block whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-left text-sm leading-relaxed ${
+          className={`rounded-2xl px-4 py-3 text-left text-sm leading-relaxed ${
             isUser
-              ? "bg-brand-600 text-white"
-              : "border border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+              ? "inline-block bg-brand-600 text-white shadow-sm"
+              : "border border-slate-200 bg-white text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
           }`}
         >
-          {message.content}
-          {live ? (
-            <span className="ml-0.5 inline-flex items-center gap-1 align-middle">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-400" />
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-400 [animation-delay:150ms]" />
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-400 [animation-delay:300ms]" />
-            </span>
+          {isUser ? (
+            <p className="whitespace-pre-wrap">{message.content}</p>
+          ) : message.content ? (
+            <div className="min-w-0">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {message.content}
+              </ReactMarkdown>
+            </div>
+          ) : null}
+
+          {streaming ? (
+            message.content ? (
+              <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-brand-400 align-middle" />
+            ) : (
+              <span className="inline-flex items-center gap-1 align-middle">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-400" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-400 [animation-delay:150ms]" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-400 [animation-delay:300ms]" />
+              </span>
+            )
+          ) : null}
+        </div>
+
+        <div
+          className={`mt-1.5 flex items-center gap-2 text-[11px] text-slate-400 ${
+            isUser ? "justify-end" : ""
+          }`}
+        >
+          <span>{time}</span>
+          {!isUser && message.content && !streaming ? (
+            <button
+              type="button"
+              onClick={() => void copy()}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              aria-label="Copy reply"
+            >
+              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copied ? "Copied" : "Copy"}
+            </button>
           ) : null}
         </div>
 
         {message.sources.length > 0 ? (
-          <div className="mt-2 space-y-1.5 text-left">
-            <p className="flex items-center gap-1.5 text-xs font-medium text-slate-400">
+          <details className="group mt-1 text-left">
+            <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 text-xs font-medium text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-200">
               <BookOpen className="h-3.5 w-3.5" />
-              Sources
-            </p>
-            {message.sources.map((source) => (
-              <div
-                key={`${message.id}-${source.source_uri}`}
-                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/60"
-              >
-                <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                  {source.title}
-                </p>
-                {source.snippet ? (
-                  <p className="mt-0.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
-                    {source.snippet}
+              {message.sources.length} source{message.sources.length === 1 ? "" : "s"}
+              <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="mt-1.5 space-y-1.5">
+              {message.sources.map((source) => (
+                <div
+                  key={`${message.id}-${source.source_uri}`}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/60"
+                >
+                  <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                    {source.title}
                   </p>
-                ) : null}
-              </div>
-            ))}
-          </div>
+                  {source.snippet ? (
+                    <p className="mt-0.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
+                      {source.snippet}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </details>
         ) : null}
       </div>
     </div>

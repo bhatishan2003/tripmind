@@ -1,5 +1,5 @@
 [codespell]
-skip = *.ipynb
+skip = *.ipynb,*package-lock.json
 # MapPin is the lucide-react icon name (not a typo for "mapping")
 ignore-words-list = MapPin
 count =

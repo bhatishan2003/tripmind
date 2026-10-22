@@ -3,7 +3,8 @@
 Interactive single-page app for the Phase 1 FastAPI backend (in `../app`).
 Replaces the previous Streamlit UI.
 
-**Stack:** Vite · React 18 · TypeScript · Tailwind CSS · React Router · lucide-react
+**Stack:** Vite · React 18 · TypeScript · Tailwind CSS · React Router · lucide-react ·
+React Markdown + remark-gfm
 
 ## Setup
 
