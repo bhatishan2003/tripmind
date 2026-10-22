@@ -52,3 +52,16 @@ class ConversationRead(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+
+class ConversationSummary(BaseModel):
+    """Lightweight row for the chat history sidebar (no transcript payload)."""
+
+    id: uuid.UUID
+    title: str | None = None
+    trip_id: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+    last_message: str | None = None
+    last_role: str | None = None
+    message_count: int = 0

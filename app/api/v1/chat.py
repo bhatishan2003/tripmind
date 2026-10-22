@@ -1,8 +1,10 @@
 """Conversational trip assistant endpoints (Phase 2A).
 
+GET  /chat          — list the user's conversations (history sidebar)
 POST /chat          — one turn (JSON, or SSE with `stream` / Accept header)
 POST /chat/stream   — one turn streamed as Server-Sent Events
-GET  /chat/{id}     — persisted conversation history
+GET  /chat/{id}     — persisted conversation transcript
+DELETE /chat/{id}   — delete a conversation and its messages
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -22,7 +24,13 @@ from app.db.database import AsyncSessionLocal, get_session
 from app.db.models.conversation import Conversation
 from app.db.models.user import User
 from app.db.repositories import conversation as conversation_repo
-from app.schemas.chat import ChatMessage, ChatRequest, ChatTurn, ConversationRead
+from app.schemas.chat import (
+    ChatMessage,
+    ChatRequest,
+    ChatTurn,
+    ConversationRead,
+    ConversationSummary,
+)
 from app.services import chat_service
 
 logger = logging.getLogger(__name__)
@@ -33,6 +41,16 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 @router.get("/ping")
 async def ping():
     return {"status": "ready"}
+
+
+@router.get("", response_model=list[ConversationSummary])
+async def list_conversations(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    current: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    return await chat_service.list_conversations(session, current.id, limit=limit, offset=offset)
 
 
 @router.post("", response_model=None)
@@ -75,6 +93,15 @@ async def get_conversation(
     current: Annotated[User, Depends(get_current_user)],
 ):
     return await chat_service.get_history(session, current.id, conversation_id)
+
+
+@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation(
+    conversation_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    current: Annotated[User, Depends(get_current_user)],
+):
+    await chat_service.delete_conversation(session, current.id, conversation_id)
 
 
 async def _stream_turn(

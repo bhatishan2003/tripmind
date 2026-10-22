@@ -131,3 +131,33 @@ async def test_streaming_chat_emits_deltas_and_persists(client: AsyncClient):
         "user",
         "assistant",
     ]
+
+
+@pytest.mark.asyncio
+async def test_chat_history_list_and_delete(client: AsyncClient):
+    first = await client.post("/api/v1/chat", json={"message": "Plan a trip to Kashmir"})
+    assert first.status_code == 200, first.text
+    first_id = first.json()["conversation_id"]
+
+    second = await client.post("/api/v1/chat", json={"message": "Where should I stay in Kyoto?"})
+    assert second.status_code == 200, second.text
+    second_id = second.json()["conversation_id"]
+
+    listing = await client.get("/api/v1/chat")
+    assert listing.status_code == 200, listing.text
+    items = listing.json()
+    ids = [item["id"] for item in items]
+    assert first_id in ids and second_id in ids
+    assert ids[0] == second_id  # most recently active first
+
+    by_id = {item["id"]: item for item in items}
+    assert by_id[first_id]["message_count"] == 2
+    assert by_id[first_id]["last_role"] == "assistant"
+    assert by_id[first_id]["last_message"]
+
+    deleted = await client.delete(f"/api/v1/chat/{second_id}")
+    assert deleted.status_code == 204
+    assert (await client.get(f"/api/v1/chat/{second_id}")).status_code == 404
+
+    after = await client.get("/api/v1/chat")
+    assert second_id not in [item["id"] for item in after.json()]

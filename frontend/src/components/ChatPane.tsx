@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  History,
   MessageCircle,
   Plus,
   Send,
@@ -16,10 +17,12 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { ApiError, api, streamChat } from "@/api/client";
+import { ChatHistory } from "@/components/ChatHistory";
+import { ConfirmDialog } from "@/components/Modal";
 import { Spinner } from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/context/ToastContext";
-import type { ChatMessage } from "@/types";
+import type { ChatConversationSummary, ChatMessage } from "@/types";
 
 const STORAGE_KEY = "atp-chat-conversation";
 
@@ -118,13 +121,34 @@ export function ChatPane() {
   const [streaming, setStreaming] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<ChatConversationSummary[]>([]);
+  const [loadingConversations, setLoadingConversations] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ChatConversationSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const streamSeqRef = useRef(0);
+  const openSeqRef = useRef(0);
+
+  const loadConversations = useCallback(async () => {
+    if (!token) return;
+    setLoadingConversations(true);
+    try {
+      setConversations(await api.listChats(token));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not load chat history.");
+    } finally {
+      setLoadingConversations(false);
+    }
+  }, [token, toast]);
 
   useEffect(() => {
     if (!token) return;
+    void loadConversations();
+
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) return;
 
@@ -139,7 +163,10 @@ export function ChatPane() {
         setMessages(conversation.messages);
       })
       .catch(() => {
-        if (active) localStorage.removeItem(STORAGE_KEY);
+        if (active) {
+          localStorage.removeItem(STORAGE_KEY);
+          setConversationId(null);
+        }
       })
       .finally(() => {
         if (active) setLoadingHistory(false);
@@ -148,7 +175,7 @@ export function ChatPane() {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [token, loadConversations]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({
@@ -164,28 +191,89 @@ export function ChatPane() {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [input]);
 
-  const stop = useCallback(() => {
-    abortRef.current?.abort();
-  }, []);
-
-  const newChat = useCallback(() => {
+  const cancelStream = useCallback(() => {
+    streamSeqRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
+    setStreaming(false);
+  }, []);
+
+  const stop = useCallback(() => {
+    cancelStream();
+  }, [cancelStream]);
+
+  const resetConversation = useCallback(() => {
+    cancelStream();
+    openSeqRef.current += 1;
     localStorage.removeItem(STORAGE_KEY);
     setMessages([]);
     setConversationId(null);
     setTitle(null);
     setError(null);
     setInput("");
-    setStreaming(false);
+  }, [cancelStream]);
+
+  const newChat = useCallback(() => {
+    resetConversation();
+    setHistoryOpen(false);
     textareaRef.current?.focus();
-  }, []);
+  }, [resetConversation]);
+
+  const openConversation = useCallback(
+    async (id: string) => {
+      if (!token) return;
+      setHistoryOpen(false);
+      if (id === conversationId) return;
+
+      cancelStream();
+      const seq = ++openSeqRef.current;
+      setConversationId(id);
+      setTitle(conversations.find((item) => item.id === id)?.title ?? null);
+      setMessages([]);
+      setError(null);
+      setLoadingHistory(true);
+      localStorage.setItem(STORAGE_KEY, id);
+
+      try {
+        const conversation = await api.getChat(token, id);
+        if (seq !== openSeqRef.current) return;
+        setTitle(conversation.title ?? null);
+        setMessages(conversation.messages);
+      } catch (err) {
+        if (seq !== openSeqRef.current) return;
+        localStorage.removeItem(STORAGE_KEY);
+        setConversationId(null);
+        setMessages([]);
+        toast.error(err instanceof ApiError ? err.message : "Could not load this conversation.");
+      } finally {
+        if (seq === openSeqRef.current) setLoadingHistory(false);
+      }
+    },
+    [token, conversationId, conversations, cancelStream, toast],
+  );
+
+  const confirmDelete = useCallback(async () => {
+    if (!token || !deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.deleteChat(token, deleteTarget.id);
+      setConversations((prev) => prev.filter((item) => item.id !== deleteTarget.id));
+      if (deleteTarget.id === conversationId) resetConversation();
+      toast.success("Chat deleted.");
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not delete this chat.");
+    } finally {
+      setDeleting(false);
+    }
+  }, [token, deleteTarget, conversationId, resetConversation, toast]);
 
   const send = useCallback(
     async (text: string) => {
       const message = text.trim();
       if (!message || !token || streaming) return;
 
+      const streamId = ++streamSeqRef.current;
       setInput("");
       setError(null);
 
@@ -220,13 +308,29 @@ export function ChatPane() {
           { message, conversation_id: conversationId },
           {
             onMeta: (meta) => {
+              if (streamSeqRef.current !== streamId) return;
               setConversationId(meta.conversation_id);
               localStorage.setItem(STORAGE_KEY, meta.conversation_id);
               setMessages((prev) =>
                 prev.map((item) => (item.id === userId ? meta.user_message : item)),
               );
+              setConversations((prev) => {
+                const existing = prev.find((item) => item.id === meta.conversation_id);
+                const summary: ChatConversationSummary = {
+                  id: meta.conversation_id,
+                  title: existing?.title ?? message.slice(0, 60),
+                  trip_id: existing?.trip_id ?? null,
+                  created_at: existing?.created_at ?? meta.user_message.created_at,
+                  updated_at: meta.user_message.created_at,
+                  last_message: message,
+                  last_role: "user",
+                  message_count: (existing?.message_count ?? 0) + 1,
+                };
+                return [summary, ...prev.filter((item) => item.id !== meta.conversation_id)];
+              });
             },
             onDelta: (delta) => {
+              if (streamSeqRef.current !== streamId) return;
               setMessages((prev) =>
                 prev.map((item) =>
                   item.id === assistantId ? { ...item, content: item.content + delta } : item,
@@ -234,14 +338,31 @@ export function ChatPane() {
               );
             },
             onDone: (done) => {
+              if (streamSeqRef.current !== streamId) return;
               setConversationId(done.conversation_id);
               localStorage.setItem(STORAGE_KEY, done.conversation_id);
               setTitle((current) => current ?? message.slice(0, 60));
               setMessages((prev) =>
                 prev.map((item) => (item.id === assistantId ? done.message : item)),
               );
+              setConversations((prev) => {
+                const existing = prev.find((item) => item.id === done.conversation_id);
+                const summary: ChatConversationSummary = {
+                  id: done.conversation_id,
+                  title: existing?.title ?? message.slice(0, 60),
+                  trip_id: existing?.trip_id ?? null,
+                  created_at: existing?.created_at ?? done.message.created_at,
+                  updated_at: done.message.created_at,
+                  last_message: done.message.content,
+                  last_role: "assistant",
+                  message_count: (existing?.message_count ?? 0) + 1,
+                };
+                return [summary, ...prev.filter((item) => item.id !== done.conversation_id)];
+              });
+              void loadConversations();
             },
             onError: (detail) => {
+              if (streamSeqRef.current !== streamId) return;
               setError(detail);
               toast.error(detail);
               setMessages((prev) =>
@@ -252,7 +373,7 @@ export function ChatPane() {
           controller.signal,
         );
       } catch (err) {
-        if (!controller.signal.aborted) {
+        if (streamSeqRef.current === streamId && !controller.signal.aborted) {
           const detail = err instanceof ApiError ? err.message : "Could not reach the assistant.";
           setError(detail);
           toast.error(detail);
@@ -261,11 +382,13 @@ export function ChatPane() {
           );
         }
       } finally {
-        if (abortRef.current === controller) abortRef.current = null;
-        setStreaming(false);
+        if (streamSeqRef.current === streamId) {
+          abortRef.current = null;
+          setStreaming(false);
+        }
       }
     },
-    [token, streaming, conversationId, toast],
+    [token, streaming, conversationId, toast, loadConversations],
   );
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -279,116 +402,171 @@ export function ChatPane() {
   const canSend = input.trim().length > 0 && !streaming;
 
   return (
-    <section className="card flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex items-center gap-3 border-b border-slate-200 bg-white/70 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/70">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-600 text-white shadow-sm">
-          <Sparkles className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {title || "Travel assistant"}
-          </p>
-          <p className="truncate text-xs text-slate-500 dark:text-slate-400">
-            {streaming
-              ? "Streaming response…"
-              : conversationId
-                ? "Conversation saved"
-                : "New conversation"}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={newChat}
-          className="btn-outline !px-3 !py-1.5 text-xs"
-          disabled={messages.length === 0 && !conversationId}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New chat
-        </button>
-      </header>
+    <div className="flex min-h-0 flex-1 gap-4">
+      <aside className="card hidden w-64 shrink-0 flex-col p-3 lg:flex xl:w-72">
+        <ChatHistory
+          conversations={conversations}
+          activeId={conversationId}
+          loading={loadingConversations}
+          onSelect={(id) => void openConversation(id)}
+          onNew={newChat}
+          onDelete={setDeleteTarget}
+        />
+      </aside>
 
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5 sm:px-6">
-        {loadingHistory ? (
-          <div className="flex h-full items-center justify-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-            <Spinner className="h-5 w-5 text-brand-500" />
-            Loading conversation…
-          </div>
-        ) : messages.length === 0 ? (
-          <EmptyState
-            onPick={(suggestion) => {
-              setInput(suggestion);
-              textareaRef.current?.focus();
-            }}
+      {historyOpen ? (
+        <div className="no-print fixed inset-0 z-40 lg:hidden">
+          <div
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+            onClick={() => setHistoryOpen(false)}
+            aria-hidden
           />
-        ) : (
-          messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              streaming={streaming && message.role === "assistant"}
+          <div className="absolute inset-y-0 left-0 w-80 max-w-[85vw] border-r border-slate-200 bg-white p-4 shadow-xl animate-fade-in dark:border-slate-800 dark:bg-slate-950">
+            <ChatHistory
+              conversations={conversations}
+              activeId={conversationId}
+              loading={loadingConversations}
+              onSelect={(id) => void openConversation(id)}
+              onNew={newChat}
+              onDelete={setDeleteTarget}
+              onClose={() => setHistoryOpen(false)}
             />
-          ))
-        )}
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800 sm:px-6">
-        {error ? (
-          <p
-            role="alert"
-            className="mb-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300"
-          >
-            {error}
-          </p>
-        ) : null}
-
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void send(input);
-          }}
-        >
-          <div className="relative">
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={onKeyDown}
-              disabled={streaming || loadingHistory}
-              placeholder="Ask about a destination, budget, or itinerary idea…"
-              className="input max-h-40 min-h-[3.25rem] resize-none py-3 pr-14 leading-relaxed disabled:opacity-60"
-              aria-label="Chat message"
-            />
-            {streaming ? (
-              <button
-                type="button"
-                onClick={stop}
-                className="btn-outline absolute bottom-2 right-2 !p-2"
-                title="Stop generating"
-                aria-label="Stop generating"
-              >
-                <Square className="h-4 w-4" />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!canSend}
-                className="btn-primary absolute bottom-2 right-2 !p-2"
-                title="Send message"
-                aria-label="Send message"
-              >
-                <Send className="h-4 w-4" />
-              </button>
-            )}
           </div>
-          <p className="mt-2 text-xs text-slate-400">
-            Enter to send · Shift+Enter for a new line. The assistant can make mistakes — verify
-            prices and opening hours.
-          </p>
-        </form>
-      </div>
-    </section>
+        </div>
+      ) : null}
+
+      <section className="card flex min-h-0 flex-1 flex-col overflow-hidden">
+        <header className="flex items-center gap-3 border-b border-slate-200 bg-white/70 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/70">
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+            className="btn-ghost !p-2 lg:hidden"
+            title="Chat history"
+            aria-label="Open chat history"
+          >
+            <History className="h-4 w-4" />
+          </button>
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-600 text-white shadow-sm">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+              {title || "Travel assistant"}
+            </p>
+            <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+              {streaming
+                ? "Streaming response…"
+                : conversationId
+                  ? "Conversation saved"
+                  : "New conversation"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={newChat}
+            className="btn-outline !px-3 !py-1.5 text-xs"
+            disabled={messages.length === 0 && !conversationId}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New chat
+          </button>
+        </header>
+
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5 sm:px-6">
+          {loadingHistory ? (
+            <div className="flex h-full items-center justify-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+              <Spinner className="h-5 w-5 text-brand-500" />
+              Loading conversation…
+            </div>
+          ) : messages.length === 0 ? (
+            <EmptyState
+              onPick={(suggestion) => {
+                setInput(suggestion);
+                textareaRef.current?.focus();
+              }}
+            />
+          ) : (
+            messages.map((message) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                streaming={streaming && message.role === "assistant"}
+              />
+            ))
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800 sm:px-6">
+          {error ? (
+            <p
+              role="alert"
+              className="mb-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300"
+            >
+              {error}
+            </p>
+          ) : null}
+
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void send(input);
+            }}
+          >
+            <div className="relative">
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={onKeyDown}
+                disabled={streaming || loadingHistory}
+                placeholder="Ask about a destination, budget, or itinerary idea…"
+                className="input max-h-40 min-h-[3.25rem] resize-none py-3 pr-14 leading-relaxed disabled:opacity-60"
+                aria-label="Chat message"
+              />
+              {streaming ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  className="btn-outline absolute bottom-2 right-2 !p-2"
+                  title="Stop generating"
+                  aria-label="Stop generating"
+                >
+                  <Square className="h-4 w-4" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!canSend}
+                  className="btn-primary absolute bottom-2 right-2 !p-2"
+                  title="Send message"
+                  aria-label="Send message"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              Enter to send · Shift+Enter for a new line. The assistant can make mistakes — verify
+              prices and opening hours.
+            </p>
+          </form>
+        </div>
+      </section>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete this chat?"
+        message={`“${deleteTarget?.title || "New conversation"}” and all of its messages will be permanently removed.`}
+        confirmLabel={deleting ? "Deleting…" : "Delete chat"}
+        busy={deleting}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => {
+          if (!deleting) setDeleteTarget(null);
+        }}
+      />
+    </div>
   );
 }
 

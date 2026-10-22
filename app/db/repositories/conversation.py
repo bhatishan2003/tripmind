@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -39,6 +39,53 @@ async def get_owned(
         stmt = stmt.options(selectinload(Conversation.messages))
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
+
+
+async def list_by_user(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[tuple[Conversation, str | None, str | None, int]]:
+    """Conversation summaries, newest activity first, with a last-message preview."""
+    last_message = (
+        select(Message.content)
+        .where(Message.conversation_id == Conversation.id)
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .limit(1)
+        .correlate(Conversation)
+        .scalar_subquery()
+    )
+    last_role = (
+        select(Message.role)
+        .where(Message.conversation_id == Conversation.id)
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .limit(1)
+        .correlate(Conversation)
+        .scalar_subquery()
+    )
+    message_count = (
+        select(func.count(Message.id))
+        .where(Message.conversation_id == Conversation.id)
+        .correlate(Conversation)
+        .scalar_subquery()
+    )
+
+    stmt = (
+        select(
+            Conversation,
+            last_message.label("last_message"),
+            last_role.label("last_role"),
+            message_count.label("message_count"),
+        )
+        .where(Conversation.user_id == user_id)
+        .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = (await session.execute(stmt)).all()
+    return [(conversation, preview, role, int(count or 0)) for conversation, preview, role, count in rows]
 
 
 async def list_messages(
@@ -84,3 +131,8 @@ async def add_message(
     await session.commit()
     await session.refresh(message)
     return message
+
+
+async def delete(session: AsyncSession, conversation: Conversation) -> None:
+    await session.delete(conversation)
+    await session.commit()

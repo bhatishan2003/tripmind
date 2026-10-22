@@ -25,7 +25,7 @@ from app.db.repositories import conversation as conversation_repo
 from app.db.repositories import trip as trip_repo
 from app.rag.retriever import hits_to_sources
 from app.rag.store import semantic_search
-from app.schemas.chat import ChatRequest
+from app.schemas.chat import ChatRequest, ConversationSummary
 from app.schemas.itinerary import ItinerarySource
 from app.services import itinerary_service
 
@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 MAX_HISTORY_MESSAGES = 20
 MAX_TITLE_LENGTH = 60
+PREVIEW_LENGTH = 160
 
 SYSTEM_PROMPT = """You are Tripmind, a practical and friendly travel assistant.
 Help the user research destinations, shape itineraries, compare neighbourhoods,
@@ -55,6 +56,15 @@ def _title_from(message: str) -> str:
     if len(title) <= MAX_TITLE_LENGTH:
         return title
     return title[: MAX_TITLE_LENGTH - 1].rstrip() + "…"
+
+
+def _preview(text: str | None) -> str | None:
+    if not text:
+        return None
+    preview = " ".join(text.split())
+    if len(preview) <= PREVIEW_LENGTH:
+        return preview
+    return preview[: PREVIEW_LENGTH - 1].rstrip() + "…"
 
 
 def _knowledge_block(sources: list[ItinerarySource]) -> str:
@@ -290,6 +300,40 @@ async def get_history(
     if conversation is None:
         raise not_found("Conversation not found")
     return conversation
+
+
+async def list_conversations(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[ConversationSummary]:
+    rows = await conversation_repo.list_by_user(session, user_id, limit=limit, offset=offset)
+    return [
+        ConversationSummary(
+            id=conversation.id,
+            title=conversation.title,
+            trip_id=conversation.trip_id,
+            created_at=conversation.created_at,
+            updated_at=conversation.updated_at,
+            last_message=_preview(preview),
+            last_role=last_role,
+            message_count=message_count,
+        )
+        for conversation, preview, last_role, message_count in rows
+    ]
+
+
+async def delete_conversation(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+) -> None:
+    conversation = await conversation_repo.get_owned(session, user_id, conversation_id)
+    if conversation is None:
+        raise not_found("Conversation not found")
+    await conversation_repo.delete(session, conversation)
 
 
 async def reply(

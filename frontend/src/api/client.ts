@@ -1,6 +1,7 @@
 import { API_BASE_URL } from "@/lib/constants";
 import type {
   ChatConversation,
+  ChatConversationSummary,
   ChatRequestPayload,
   ChatStreamDone,
   ChatStreamMeta,
@@ -177,8 +178,17 @@ export const api = {
       timeoutMs: 60_000,
     }),
 
+  listChats: (token: string, limit = 100, offset = 0) =>
+    request<ChatConversationSummary[]>(`/chat?limit=${limit}&offset=${offset}`, {
+      token,
+      timeoutMs: 15_000,
+    }),
+
   getChat: (token: string, conversationId: string) =>
     request<ChatConversation>(`/chat/${conversationId}`, { token }),
+
+  deleteChat: (token: string, conversationId: string) =>
+    request<void>(`/chat/${conversationId}`, { method: "DELETE", token }),
 };
 
 export interface ChatStreamHandlers {

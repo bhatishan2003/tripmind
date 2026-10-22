@@ -116,6 +116,17 @@ export interface ChatConversation {
   messages: ChatMessage[];
 }
 
+export interface ChatConversationSummary {
+  id: string;
+  title?: string | null;
+  trip_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  last_message?: string | null;
+  last_role?: string | null;
+  message_count: number;
+}
+
 export interface ChatTurn {
   conversation_id: string;
   user_message: ChatMessage;
