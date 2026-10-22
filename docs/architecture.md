@@ -11,7 +11,7 @@
 tripmind` is a single-user-facing web app: a traveller
 signs in, describes a trip, and receives a day-by-day itinerary grounded in a
 local travel knowledge base. The **React SPA** is the only surface a user
-touches — it handles routing (`Login · Trips · NewTrip · Details`), auth/theme/
+touches — it handles routing (`Login · Trips · Chat · NewTrip · Details`), auth/theme/
 toast state via contexts, and every backend call through `api/client.ts` (JWT
 `Bearer` header, request timeouts, typed errors). Those calls hit the **FastAPI
 edge** (`/health` + `/api/v1` router) which fans out to three layers: the **API
@@ -32,7 +32,7 @@ flowchart LR
     subgraph CLIENT["Client — React SPA"]
         direction TB
         Vite["Vite + TypeScript<br/>Tailwind CSS"]:::client
-        Pages["Pages: Login · Trips · NewTrip · Details"]:::client
+        Pages["Pages: Login · Trips · Chat · NewTrip · Details"]:::client
         Ctx["Contexts: Auth · Theme · Toast"]:::client
         APIClient["api/client.ts<br/>fetch + JWT + timeout"]:::client
         Vite --> Pages --> Ctx --> APIClient
@@ -51,12 +51,13 @@ flowchart LR
             AuthR["auth<br/>register · login · me"]:::api
             TripR["trips<br/>CRUD · generate"]:::api
             DestR["destinations<br/>search · detail"]:::api
-            ChatR["chat<br/>ping (phase 2)"]:::api
+            ChatR["chat<br/>turns · history · SSE"]:::api
         end
         subgraph SVC["Service layer"]
             TripS["trip_service<br/>orchestration"]:::svc
             ItinS["itinerary_service<br/>LLM + fallback"]:::svc
             DestS["destination_service<br/>catalog queries"]:::svc
+            ChatS["chat_service<br/>persist · RAG · stream"]:::svc
         end
         subgraph RAG["RAG pipeline"]
             direction TB
@@ -72,7 +73,7 @@ flowchart LR
     subgraph DATA["Data"]
         direction TB
         PG[("PostgreSQL 16<br/>+ pgvector")]:::data
-        Models["SQLAlchemy models<br/>User · Trip · Document · Chunk"]:::data
+        Models["SQLAlchemy models<br/>User · Trip · Conversation · Message · Document · Chunk"]:::data
         Alembic["Alembic migrations"]:::data
         Models --> PG
         Alembic -.->|schema| PG
@@ -95,10 +96,13 @@ flowchart LR
     V1 --> API
     TripR --> TripS
     DestR --> DestS
+    ChatR --> ChatS
     AuthR --> Models
     TripS --> Retr
     TripS --> ItinS
     DestS --> Models
+    ChatS --> Models
+    ChatS --> Retr
     Retr --> Store
     Store --> Models
     ItinS -->|"if key set"| Groq

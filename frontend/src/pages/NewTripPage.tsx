@@ -113,7 +113,11 @@ export function NewTripPage() {
           Plan a new trip
         </h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Tell us where and how you like to travel — we'll do the rest.
+          Tell us where and how you like to travel — we'll do the rest. Prefer to chat?{" "}
+          <Link to="/chat" className="font-medium text-brand-600 hover:underline dark:text-brand-400">
+            Ask the assistant
+          </Link>
+          .
         </p>
       </div>
 

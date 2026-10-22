@@ -1,6 +1,7 @@
 import {
   LogOut,
   Menu,
+  MessageCircle,
   Plane,
   PlusCircle,
   Server,
@@ -18,6 +19,7 @@ import { useAuth } from "@/context/AuthContext";
 
 const NAV = [
   { to: "/", label: "My Trips", icon: Ticket, end: true },
+  { to: "/chat", label: "Chat", icon: MessageCircle, end: false },
   { to: "/trips/new", label: "New Trip", icon: PlusCircle, end: false },
 ];
 
@@ -68,7 +70,7 @@ export function AppShell() {
           <p className="text-sm font-semibold leading-tight text-slate-900 dark:text-slate-100">
             AI Travel Planner
           </p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Phase 1</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Chat + planner</p>
         </div>
       </div>
 

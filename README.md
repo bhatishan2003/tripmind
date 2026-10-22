@@ -66,6 +66,13 @@ pytest -q
 | POST | `/trips/{id}/generate` | Regenerate itinerary |
 | GET | `/destinations/search` | Search RAG destinations (`?q=`) |
 | GET | `/destinations/{name}` | Destination knowledge-base detail |
+| POST | `/chat` | One chat turn (JSON; SSE with `stream: true` or `Accept: text/event-stream`) |
+| POST | `/chat/stream` | One chat turn streamed as Server-Sent Events |
+| GET | `/chat/{id}` | Persisted conversation history |
+
+Chat conversations and messages are stored per user. The assistant streams tokens
+over SSE, grounds replies in the RAG corpus when relevant, and falls back to a
+deterministic knowledge-base answer when no LLM key is configured.
 
 ### Example
 

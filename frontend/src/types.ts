@@ -95,3 +95,46 @@ export type TripUpdatePayload = Partial<{
   interests: string[];
   status: string;
 }>;
+
+export type ChatRole = "user" | "assistant" | "system";
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  role: ChatRole;
+  content: string;
+  sources: ItinerarySource[];
+  created_at: string;
+}
+
+export interface ChatConversation {
+  id: string;
+  title?: string | null;
+  trip_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  messages: ChatMessage[];
+}
+
+export interface ChatTurn {
+  conversation_id: string;
+  user_message: ChatMessage;
+  message: ChatMessage;
+}
+
+export interface ChatRequestPayload {
+  message: string;
+  conversation_id?: string | null;
+  trip_id?: string | null;
+  stream?: boolean;
+}
+
+export interface ChatStreamMeta {
+  conversation_id: string;
+  user_message: ChatMessage;
+}
+
+export interface ChatStreamDone {
+  conversation_id: string;
+  message: ChatMessage;
+}

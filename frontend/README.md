@@ -50,6 +50,7 @@ VITE_API_BASE_URL=http://localhost:8000
 |---|---|---|
 | `/login` | Login + register tabs, JWT stored in `localStorage` | `POST /api/v1/auth/{login,register}`, `GET /api/v1/auth/me` |
 | `/` | Trip list with live filter + sort, skeleton loaders, empty state | `GET /api/v1/trips` |
+| `/chat` | Streaming chat pane with saved conversation history | `POST /api/v1/chat` (SSE), `GET /api/v1/chat/{id}` |
 | `/trips/new` | Validated form; animated generation progress while waiting | `POST /api/v1/trips` |
 | `/trips/:id` | Day-by-day accordion itinerary, regenerate, edit, delete, export | `GET/PATCH/DELETE /api/v1/trips/{id}`, `POST /api/v1/trips/{id}/generate` |
 
@@ -58,6 +59,8 @@ VITE_API_BASE_URL=http://localhost:8000
 - **Dark mode** toggle (persisted to `localStorage`, honours OS preference).
 - **Export / Print** — expands every day and opens the browser print dialog, backed by
   a dedicated `@media print` stylesheet for a clean PDF.
+- **Streaming chat assistant** — SSE tokens rendered live, saved conversations,
+  inline RAG citations, stop-generation, and a "New chat" reset.
 - Animated itinerary **generation progress** with rotating status messages.
 - **Collapsible day plans**, a timeline of activities with category badges and costs.
 - **Toasts** for success/error feedback, modal-based edit and delete confirmation.
@@ -67,10 +70,10 @@ VITE_API_BASE_URL=http://localhost:8000
 
 ```
 src/
-  api/client.ts          Typed fetch client (ApiError, timeouts, JWT header)
+  api/client.ts          Typed fetch client (ApiError, timeouts, JWT, SSE streaming)
   context/               Auth, Theme, and Toast providers
-  components/            AppShell, ItineraryView, TripCard, Modal, Toasts, ...
-  pages/                 LoginPage, TripsPage, NewTripPage, TripDetailsPage
+  components/            AppShell, ChatPane, ItineraryView, TripCard, Modal, ...
+  pages/                 LoginPage, TripsPage, ChatPage, NewTripPage, TripDetailsPage
   lib/                   constants (styles/currencies/interests) and formatters
   types.ts               Shared API types
 ```

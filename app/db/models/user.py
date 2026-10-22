@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.database import Base
 
 if TYPE_CHECKING:
+    from app.db.models.conversation import Conversation
     from app.db.models.trip import Trip
 
 
@@ -23,3 +24,6 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     trips: Mapped[list["Trip"]] = relationship("Trip", back_populates="user", cascade="all, delete-orphan")
+    conversations: Mapped[list["Conversation"]] = relationship(
+        "Conversation", back_populates="user", cascade="all, delete-orphan"
+    )

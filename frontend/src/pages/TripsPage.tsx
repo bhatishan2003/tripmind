@@ -1,4 +1,11 @@
-import { ArrowUpDown, PlusCircle, RefreshCw, Search, Ticket } from "lucide-react";
+import {
+  ArrowUpDown,
+  MessageCircle,
+  PlusCircle,
+  RefreshCw,
+  Search,
+  Ticket,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -84,6 +91,10 @@ export function TripsPage() {
             <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
             <span className="hidden sm:inline">Refresh</span>
           </button>
+          <Link to="/chat" className="btn-outline">
+            <MessageCircle className="h-4 w-4" />
+            <span className="hidden sm:inline">Ask assistant</span>
+          </Link>
           <Link to="/trips/new" className="btn-primary">
             <PlusCircle className="h-4 w-4" />
             Plan new trip

@@ -5,6 +5,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { ToastProvider } from "@/context/ToastContext";
+import { ChatPage } from "@/pages/ChatPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NewTripPage } from "@/pages/NewTripPage";
 import { TripDetailsPage } from "@/pages/TripDetailsPage";
@@ -26,6 +27,7 @@ export default function App() {
                 }
               >
                 <Route index element={<TripsPage />} />
+                <Route path="/chat" element={<ChatPage />} />
                 <Route path="/trips/new" element={<NewTripPage />} />
                 <Route path="/trips/:id" element={<TripDetailsPage />} />
               </Route>
