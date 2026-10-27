@@ -24,16 +24,12 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
-    OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = "gpt-4o-mini"
-    OPENAI_BASE_URL: str = ""
-    # Groq (OpenAI-compatible). Set GROQ_API_KEY to use Groq instead of OpenAI.
+    # Groq (primary, OpenAI-compatible). Get a key at https://console.groq.com/keys
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "GPT-OSS-120b"
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
-    # "auto" (default): Groq if GROQ_API_KEY set, else OpenAI if OPENAI_API_KEY set.
-    # Force with "groq" or "openai".
-    LLM_PROVIDER: str = "auto"
+    # Force provider: groq
+    LLM_PROVIDER: str = "groq"
     LLM_TIMEOUT_SECONDS: int = 60
 
     # --- RAG / Phase 2 (local sentence-transformers, no OpenAI key needed) ---

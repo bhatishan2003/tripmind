@@ -186,7 +186,7 @@ def fallback_reply(
         )
     return (
         "I'm running without an LLM key, so I can't generate a conversational answer yet. "
-        "Add GROQ_API_KEY or OPENAI_API_KEY to .env to enable free-form chat. "
+        "Add GROQ_API_KEY to .env to enable free-form chat. "
         f"In the meantime, I received: “{user_message.strip()}”."
     )
 
@@ -196,39 +196,42 @@ def _tokenize(text: str) -> list[str]:
     return re.findall(r"\S+\s*", text)
 
 
-def _resolve_client() -> tuple[object, str, str] | None:
-    """Return (AsyncOpenAI client, provider, model) or None for fallback."""
-    resolved = itinerary_service._resolve_llm()
-    if resolved is None:
-        return None
-    provider, api_key, model, base_url = resolved
+def _resolve_clients() -> list[tuple[object, str, str]]:
+    """Return configured AsyncOpenAI clients in priority order, or [] for fallback."""
+    if itinerary_service._resolve_llm() is None:
+        return []
 
     from openai import AsyncOpenAI
 
-    kwargs: dict = {"api_key": api_key, "timeout": settings.LLM_TIMEOUT_SECONDS}
-    if base_url:
-        kwargs["base_url"] = base_url
-    return AsyncOpenAI(**kwargs), provider, model
+    clients: list[tuple[object, str, str]] = []
+    for provider, api_key, model, base_url in itinerary_service._llm_candidates():
+        kwargs: dict = {"api_key": api_key, "timeout": settings.LLM_TIMEOUT_SECONDS}
+        if base_url:
+            kwargs["base_url"] = base_url
+        clients.append((AsyncOpenAI(**kwargs), provider, model))
+    return clients
 
 
 async def complete_reply(messages: list[dict[str, str]], *, fallback: str) -> str:
-    """One-shot completion (non-streaming POST /chat)."""
-    resolved = _resolve_client()
-    if resolved is None:
+    """One-shot completion (non-streaming POST /chat), trying each provider in turn."""
+    clients = _resolve_clients()
+    if not clients:
         return fallback
-    client, provider, model = resolved
-    try:
-        logger.info("Chat completion provider=%s model=%s", provider, model)
-        response = await client.chat.completions.create(  # type: ignore[attr-defined]
-            model=model,
-            messages=messages,
-            temperature=0.6,
-        )
-        content = (response.choices[0].message.content or "").strip()
-        return content or fallback
-    except Exception as exc:  # noqa: BLE001 - any provider failure falls back
-        logger.warning("Chat LLM call failed (%s) — falling back to template", exc)
-        return fallback
+    for client, provider, model in clients:
+        try:
+            logger.info("Chat completion provider=%s model=%s", provider, model)
+            response = await client.chat.completions.create(  # type: ignore[attr-defined]
+                model=model,
+                messages=messages,
+                temperature=0.6,
+            )
+            content = (response.choices[0].message.content or "").strip()
+            if content:
+                return content
+            logger.warning("Chat provider=%s returned an empty response", provider)
+        except Exception as exc:  # noqa: BLE001 - any provider failure falls through
+            logger.warning("Chat provider=%s failed (%s)", provider, exc)
+    return fallback
 
 
 async def stream_reply(
@@ -236,42 +239,41 @@ async def stream_reply(
     *,
     fallback: str,
 ) -> AsyncIterator[str]:
-    """Yield reply text incrementally (SSE). Falls back if the provider fails."""
-    resolved = _resolve_client()
-    if resolved is None:
-        for token in _tokenize(fallback):
-            yield token
-        return
+    """Yield reply text incrementally (SSE), trying each provider in turn.
 
-    client, provider, model = resolved
-    emitted = False
-    try:
-        logger.info("Chat streaming provider=%s model=%s", provider, model)
-        stream = await client.chat.completions.create(  # type: ignore[attr-defined]
-            model=model,
-            messages=messages,
-            temperature=0.6,
-            stream=True,
-        )
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-            content = getattr(chunk.choices[0].delta, "content", None)
-            if content:
-                emitted = True
-                yield content
-    except Exception as exc:  # noqa: BLE001 - provider/network errors are non-fatal
-        logger.warning("Chat streaming failed after %s chunk(s): %s", emitted, exc)
-        if not emitted:
-            for token in _tokenize(fallback):
-                yield token
-        else:
-            yield "\n\n_(The response was interrupted — please try again.)_"
-        return
+    A provider is only abandoned before its first chunk, so a mid-stream failure
+    never duplicates text. If every provider fails, the deterministic fallback
+    is streamed instead.
+    """
+    clients = _resolve_clients()
+    for client, provider, model in clients:
+        emitted = False
+        try:
+            logger.info("Chat streaming provider=%s model=%s", provider, model)
+            stream = await client.chat.completions.create(  # type: ignore[attr-defined]
+                model=model,
+                messages=messages,
+                temperature=0.6,
+                stream=True,
+            )
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                content = getattr(chunk.choices[0].delta, "content", None)
+                if content:
+                    emitted = True
+                    yield content
+            if emitted:
+                return
+            logger.warning("Chat provider=%s returned no content", provider)
+        except Exception as exc:  # noqa: BLE001 - provider/network errors are non-fatal
+            logger.warning("Chat streaming provider=%s failed after %s chunk(s): %s", provider, emitted, exc)
+            if emitted:
+                yield "\n\n_(The response was interrupted — please try again.)_"
+                return
 
-    if not emitted:
-        for token in _tokenize(fallback):
-            yield token
+    for token in _tokenize(fallback):
+        yield token
 
 
 async def finish_turn(

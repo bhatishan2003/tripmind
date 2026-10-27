@@ -90,14 +90,12 @@ curl -s -X POST localhost:8000/api/v1/trips \
 ```
 
 ## LLM integration
-Groq is the default provider (OpenAI-compatible endpoint, no extra dependency).
-Set in `.env`:
+Groq (`GPT-OSS-120b`) is the LLM provider (OpenAI-compatible API). Set in `.env`:
 ```bash
 GROQ_API_KEY=gsk_...            # get one at https://console.groq.com/keys
-GROQ_MODEL=llama-3.3-70b-versatile
-LLM_PROVIDER=auto               # auto | groq | openai
+GROQ_MODEL=GPT-OSS-120b
+LLM_PROVIDER=groq
 ```
-OpenAI still works as an alternative (`OPENAI_API_KEY` / `OPENAI_MODEL`).
 Without any key the service uses a deterministic template so the full flow works
 offline; it still respects dates, budget, travelers, style, and interests, and
 returns the same `Itinerary` schema the LLM path validates against.

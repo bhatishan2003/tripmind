@@ -349,6 +349,7 @@ wandb
 
 #Others
 RUN_PROJECT.txt
+key.txt
 
 #React frontend source lives under src/lib — un-ignore it (Python rule above hides lib/)
 !frontend/src/lib/

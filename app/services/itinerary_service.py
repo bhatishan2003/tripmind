@@ -1,9 +1,8 @@
 """LLM-backed itinerary generation with deterministic fallback.
 
 Phase 1 contract:
-- If GROQ_API_KEY (or OPENAI_API_KEY) is set, call the model and parse
-  structured JSON into Itinerary. Groq is OpenAI-compatible, so the same
-  client is used with a different base URL.
+- If a Groq key is configured, use the Groq provider (`GPT-OSS-120b`).
+  The client is OpenAI-compatible, so the same interface is used.
 - Otherwise (local dev / CI / no key), build a sensible template itinerary so the
   end-to-end flow works without external calls.
 """
@@ -17,6 +16,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
 from app.schemas.itinerary import Activity, DayPlan, Itinerary, ItinerarySource
+from app.services import tools as agent_tools
 
 logger = logging.getLogger(__name__)
 
@@ -136,51 +136,119 @@ def _fallback_itinerary(
     )
 
 
-def _resolve_llm() -> tuple[str, str, str, str] | None:
-    """Return (provider, api_key, model, base_url) or None for fallback.
+def _llm_candidates() -> list[tuple[str, str, str, str]]:
+    """Return configured provider: Groq (primary) or OpenAI (alternative)."""
+    provider = (settings.LLM_PROVIDER or "groq").lower()
+    if provider not in {"groq"}:
+        provider = "groq"
 
-    Provider selection: explicit LLM_PROVIDER ("groq"/"openai") wins;
-    "auto" prefers Groq when GROQ_API_KEY is set, else OpenAI.
-    """
-    provider = (settings.LLM_PROVIDER or "auto").lower()
     groq_key = settings.GROQ_API_KEY.strip()
-    openai_key = settings.OPENAI_API_KEY.strip()
 
-    if provider == "groq" or (provider == "auto" and groq_key):
-        if not groq_key:
-            return None
-        return ("groq", groq_key, settings.GROQ_MODEL, settings.GROQ_BASE_URL)
-    if provider == "openai" or (provider == "auto" and openai_key):
-        if not openai_key:
-            return None
-        return ("openai", openai_key, settings.OPENAI_MODEL, settings.OPENAI_BASE_URL or "")
-    return None
+    providers = [provider]
+    candidates: list[tuple[str, str, str, str]] = []
+    for name in providers:
+        if name == "groq" and groq_key:
+            candidates.append(("groq", groq_key, settings.GROQ_MODEL, settings.GROQ_BASE_URL))
+    return candidates
+
+
+def _resolve_llm() -> tuple[str, str, str, str] | None:
+    """Return the primary provider tuple, or None when no key is configured."""
+    candidates = _llm_candidates()
+    return candidates[0] if candidates else None
 
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(min=1, max=8), reraise=True)
-def _call_llm(user_prompt: str) -> str:
-    from openai import OpenAI
+def _call_provider(
+    provider: str,
+    api_key: str,
+    model: str,
+    base_url: str,
+    user_prompt: str,
+    tools: list[dict] | None = None,
+) -> str:
+    from openai import BadRequestError, OpenAI
 
-    resolved = _resolve_llm()
-    if resolved is None:
-        raise RuntimeError("No LLM key configured")
-    provider, api_key, model, base_url = resolved
-    # Groq exposes an OpenAI-compatible endpoint, so the same SDK works.
     kwargs: dict = {"api_key": api_key, "timeout": settings.LLM_TIMEOUT_SECONDS}
     if base_url:
         kwargs["base_url"] = base_url
-    logger.info("Calling LLM provider=%s model=%s", provider, model)
+    logger.info("Calling LLM provider=%s model=%s tools=%s", provider, model, bool(tools))
     client = OpenAI(**kwargs)
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
+    request: dict = {
+        "model": model,
+        "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        response_format={"type": "json_object"},
-        temperature=0.7,
-    )
-    return resp.choices[0].message.content or "{}"
+        "temperature": 0.7,
+    }
+    if tools:
+        request["tools"] = tools
+        request["tool_choice"] = "auto"
+    try:
+        resp = client.chat.completions.create(**request, response_format={"type": "json_object"})
+    except BadRequestError:
+        logger.warning("provider=%s rejected json_object mode — retrying without it", provider)
+        if tools:
+            request.pop("response_format", None)
+        resp = client.chat.completions.create(**request)
+    # Handle function/tool calling
+    message = resp.choices[0].message
+    if message.tool_calls:
+        results = []
+        for call in message.tool_calls:
+            fn_name = call.function.name
+            fn_args = json.loads(call.function.arguments or "{}")
+            fn_result = agent_tools.TOOL_MAP.get(fn_name, lambda a: json.dumps({"error": "unknown tool"}))(fn_args)
+            results.append({"name": fn_name, "args": fn_args, "result": fn_result})
+        return json.dumps({"tool_calls": results})
+    return message.content or "{}"
+
+
+def _call_llm(user_prompt: str, tools: list[dict] | None = None) -> str:
+    """Try each configured provider in priority order, returning the first success."""
+    candidates = _llm_candidates()
+    if not candidates:
+        raise RuntimeError("No LLM key configured")
+
+    last_exc: Exception | None = None
+    for provider, api_key, model, base_url in candidates:
+        try:
+            return _call_provider(provider, api_key, model, base_url, user_prompt, tools=tools)
+        except Exception as exc:  # noqa: BLE001 - fall through to the next provider
+            logger.warning("LLM provider=%s failed (%s)", provider, exc)
+            last_exc = exc
+    raise RuntimeError("All configured LLM providers failed") from last_exc
+
+
+MAX_ITERATIONS = 5
+
+
+def agent_loop(user_prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
+    """Agent loop: act (LLM + tools) -> observe -> respond. Keeps deterministic fallback."""
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}]
+    for iteration in range(1, max_iterations + 1):
+        logger.info("Agent loop iteration %d/%d", iteration, max_iterations)
+        user_content = messages[-1]["content"] if messages else user_prompt
+        raw = _call_llm(str(user_content), tools=agent_tools.TOOLS)
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = {"response": raw}
+        tool_results = parsed.get("tool_calls")
+        if tool_results:
+            observations = []
+            for result in tool_results:
+                observations.append(f"Tool {result.get('name')} result: {result.get('result')}")
+                # Confirm-before-write enforced in delete_trip; max-iterations enforced by loop
+            messages.append({"role": "assistant", "content": f"Used tools: {[r.get('name') for r in tool_results]}"})
+            messages.append({"role": "user", "content": "\n".join(observations)})
+            continue
+        else:
+            response_text = parsed.get("response", raw) if isinstance(parsed, dict) else raw
+            messages.append({"role": "assistant", "content": response_text})
+            return response_text
+    return "Agent reached max iterations without final response. Fallback applied."
 
 
 def _knowledge_block(sources: list[ItinerarySource]) -> str:
@@ -206,7 +274,7 @@ def generate_itinerary(
     interests = interests or []
     sources = sources or []
     if _resolve_llm() is None:
-        logger.info("No LLM key set (GROQ_API_KEY/OPENAI_API_KEY) — using fallback generator")
+        logger.info("No LLM key set (GROQ_API_KEY) — using fallback generator")
         return _fallback_itinerary(
             destination=destination,
             start=start_date,
