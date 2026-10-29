@@ -126,9 +126,15 @@ async def _stream_turn(
         yield _sse("meta", {"conversation_id": str(conversation_id), "user_message": user_payload})
         pieces: list[str] = []
         try:
-            async for token in chat_service.stream_reply(messages, fallback=fallback):
-                pieces.append(token)
-                yield _sse("delta", {"text": token})
+            async with session_factory() as tool_session:
+                async for token in chat_service.stream_reply(
+                    messages,
+                    fallback=fallback,
+                    session=tool_session,
+                    user_id=current.id,
+                ):
+                    pieces.append(token)
+                    yield _sse("delta", {"text": token})
         except asyncio.CancelledError:
             # Client hit Stop/closed the tab — keep whatever was generated.
             if pieces:
